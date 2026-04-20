@@ -1,0 +1,35 @@
+#!/bin/sh
+#
+# Some distro network stacks become confused if they see a /etc/resolv.conf
+# from a different distro's network stack.  Consequently, rebooting a Bedrock
+# system between distro inits - and network stacks - is prone to breaking if
+# /etc/resolv.conf is retained across the reboot.  To resolve this, Bedrock
+# removes /etc/resolv.conf before handing control off to session init under the
+# expectation that the init will create /etc/resolv.conf itself once it sees it
+# missing.
+#
+# However, this introduces difficulties with other distro network stacks which
+# will create an resolv.conf file, but not at /etc/resolv.conf, under the
+# assumption that something else is responsible for making /etc/resolv.conf a
+# symlink.  To resolve this, Bedrock configures systems to run this script at
+# the appropriate time to create a symlink at /etc/resolv.conf pointing to
+# whatever distro networking stack created resolv.conf location.
+#
+
+# Something already created a /etc/resolv.conf
+if [ -e /etc/resolv.conf ] || [ -h /etc/resolv.conf ]; then
+	exit
+fi
+
+# Try known resolv.conf locations from various distros
+for f in /etc/resolvconf/run/resolv.conf \
+		/run/resolvconf/resolv.conf \
+		/run/systemd/resolve/stub-resolv.conf \
+		/run/NetworkManager/resolv.conf \
+		/run/systemd/resolve/resolv.conf \
+		; do
+	if [ -e "${f}" ]; then
+		ln -s "${f}" /etc/resolv.conf
+		exit
+	fi
+done

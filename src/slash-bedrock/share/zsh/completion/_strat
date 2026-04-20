@@ -1,0 +1,55 @@
+#compdef strat
+# zsh tab completion for strat
+#
+#      This program is free software; you can redistribute it and/or
+#      modify it under the terms of the GNU General Public License
+#      version 2 as published by the Free Software Foundation.
+#
+# Copyright (c) 2018 Daniel Thau <danthau@bedrocklinux.org>
+#
+
+# List items in the PATH local that aren't in /bedrock/cross.  That is, those
+# local to the given stratum.
+_strat_local_cmds() {
+	local -a prefix
+	# zsh-ism: ${words} is auto-populated by the shell
+	# shellcheck disable=SC2154
+	prefix="/bedrock/strata/${words[${#words}-1]}"
+
+	# zsh-ism
+	# shellcheck disable=SC2154
+	for dir in ${(@s/:/)PATH}
+	do
+		if ! [[ "${dir}" =~ "^/bedrock/cross/" ]]
+		then
+			_arguments "*:command:_files -W ${prefix}${dir}"
+		fi
+	done
+}
+
+# Strip everything preceeding the in-stratum command, then pass to normal zsh
+# completion for the rest of the line.
+_strat_local_params() {
+	words[1]=() CURRENT=$((CURRENT - 1)) _normal
+}
+
+# zsh-ism: this file is effectively a function.
+# shellcheck disable=SC2168
+local -a args
+args=(
+	# Flags
+	'(-r --restrict)'{-r,--restrict}'[disable cross-stratum hooks]'
+	"-a[specify arg0]:new arg0:"
+	"--arg0[specify arg0]:new argv[0]:"
+	'(-h --help)'{-h,--help}'[print help message]'
+	# Stratum
+	"(-)1:stratum:($(/bedrock/bin/brl list -a))"
+	# Command to run from stratum
+	'2:command:_strat_local_cmds'
+	# Parameters for command being run from specified stratum
+	'*::parameters:_strat_local_params'
+)
+
+# zsh-ism: we want it to expand here
+# shellcheck disable=SC2128,SC2086
+_arguments ${args}
