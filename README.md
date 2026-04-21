@@ -13,6 +13,18 @@ This repository contains all the userland code for a Bedrock Linux system.  It
 can create a script which may be used to install or update a Bedrock Linux
 system.
 
+This fork introduces a variety of quality-of-life improvements, security hardenings, and expanded package manager support designed for power users. Here is exactly what we added and changed under the hood:
+
+*   **Automated Kernel Monitor (kmon):** We built a lightweight daemon (`brl-kmon`) that watches your `/boot` directory using inotify. Whenever kernel or initramfs files change, it automatically triggers your configured bootloader update commands. You no longer have to manually update GRUB when a stratum updates its kernel.
+*   **Cross-Stratum Integration Engine:** We patched the core `strat` executable to intelligently filter `LD_LIBRARY_PATH` and `LD_PRELOAD` when crossing strata boundaries. This resolves notorious crashing issues with Input Method Engines (Fcitx/IBus), translation tools, and the Steam Overlay when running cross-stratum graphical apps.
+*   **Lifecycle Hooks & brl Plugins:** Automation is now a first-class citizen. You can drop custom scripts into newly created hook directories (`pre-init.d`, `post-enable.d`, `post-disable.d`, `pre-update.d`, and `post-update.d`). Additionally, the `brl` command is now extensible: dropping an executable named `brl-mycmd` into `/bedrock/libexec/plugins/` makes `brl mycmd` work natively.
+*   **Massively Expanded PMM:** We taught the Package Manager Manager how to speak Nix, Guix, pkgsrc, and Flatpak. We also introduced a `build-packages` operation to compile packages directly from source (supporting apt, pacman, emerge, etc.), added a `--dry-run` flag for safe testing, and enabled support for drop-in PMM plugins.
+*   **Health Diagnostics & Live Debugging:** Meet `brl doctor`, a new diagnostic tool that scans your system for dead cross-bin symlinks, broken `resolv.conf` setups, and syntax errors in your Bedrock configuration. For developers, `crossfs` now supports dynamic debug logging. You can toggle it on the fly by writing to a virtual `/.debug_level` file, completely eliminating the need for tedious remounts.
+*   **Network Resilience:** If you are stuck behind a strict firewall, you can now write your proxy URL directly to `/bedrock/etc/proxy.conf` and Bedrock will automatically route its fetch and update traffic through it. We also added an `insecure="-k"` environment variable bypass for edge cases where you suffer from broken SSL certificates during bootstrap.
+*   **Hardened Security & Mounts:** We significantly modernized the compiler flags for all Bedrock binaries. They are now built with stack clash protection, zero-initialized auto variables, strict format security, and CPU-specific control-flow integrity (CFG for x86, BTI for ARM). Furthermore, the virtual `etcfs` is now mounted with `nodev` and `nosuid` to prevent potential privilege escalations.
+*   **Guix Shepherd Support:** Guix system initialization paths have been added to the default `bedrock.conf` so you can comfortably use Shepherd as your PID 1.
+
+
 Building the installer/updater
 ------------------------------
 
