@@ -48,6 +48,7 @@ jobs:
             build-essential \
             autoconf \
             automake \
+            autopoint \
             gettext \
             bison \
             fakeroot \
@@ -70,7 +71,7 @@ jobs:
         # --output-sync=target: Ensure that parallel build logs remain grouped and readable.
         run: |
           make clean
-          make SKIPSIGN=true  --output-sync=target 
+          make SKIPSIGN=true -j$(nproc) --output-sync=target 
 
       - name: Upload Installer Artifact
         # Uploads the generated .sh file so you can download it from the GitHub UI.
