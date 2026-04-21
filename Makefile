@@ -908,14 +908,14 @@ $(BUILD)/userland.tar: \
 	rm -f $(SLASHBR)/strata/local
 	# ensure static
 	if [ -z "$${BEDROCK_SKIP_LDD_CHECK}" ]; then \
-		for bin in $(SLASHBR)/bin/* $(SLASHBR)/libexec/*; do \
+		for bin in $(SLASHBR)/bin/* $(SLASHBR)/libexec/*; do \[ -f "$$bin" ] || continue; \
 			if ldd "$$bin" >/dev/null 2>&1 || ! ldd "$$bin" 2>&1 | grep -q "not a dynamic executable" ; then \
 				echo "error: $$bin is dynamically linked"; exit 1; \
 			fi; \
 		done; \
 	fi
 	# ensure correct binary format
-	for bin in $(SLASHBR)/bin/* $(SLASHBR)/libexec/*; do \
+	for bin in $(SLASHBR)/bin/* $(SLASHBR)/libexec/*; do \[ -f "$$bin" ] || continue; \
 		if file "$$bin" | grep -q "sh script"; then \
 			continue ; \
 		elif file "$$bin" | grep -qi "$(FILE_ARCH_NAME)"; then \
@@ -926,7 +926,8 @@ $(BUILD)/userland.tar: \
 	done
 	# strip binaries
 	for bin in $(SLASHBR)/bin/* $(SLASHBR)/libexec/*; do \
-		if [ -r "$$bin" ] && ! [ -h "$$bin" ] && head -c4 "$$bin" | grep -q "ELF"; then \
+		[ -f "$$bin" ] || continue; \
+		if [ -r "$$bin" ] && ![ -h "$$bin" ] && head -c4 "$$bin" | grep -q "ELF"; then \
 			strip "$$bin"; \
 		fi \
 	done
