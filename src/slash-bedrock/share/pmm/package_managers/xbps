@@ -26,6 +26,7 @@ user_interfaces["xbps", "verbose"]    = "-v/--verbose"
 # Operations which directly forward the underlying command output.
 #
 user_interfaces["xbps", "install-packages"]         = "pmm-install <pkgs>"
+user_interfaces["xbps", "build-packages"]           = "pmm-install -b/--build <pkgs>"
 user_interfaces["xbps", "reinstall-packages"]       = "pmm-install -f/--force <pkgs>"
 user_interfaces["xbps", "remove-packages-limited"]  = "pmm-remove <pkgs>"
 user_interfaces["xbps", "remove-packages-full"]     = "" # default remove command leaves config files
@@ -42,6 +43,7 @@ user_interfaces["xbps", "upgrade-packages-limited"] = "" # no partial upgrade co
 user_interfaces["xbps", "upgrade-packages-full"]    = "pmm-install -u/--upgrade"
 
 implementations["xbps", "install-packages"]         = "strat -r ${stratum} xbps-install ${flags} -- ${items}"
+implementations["xbps", "build-packages"]           = "${unprivileged_user} strat -r ${stratum} sh -c \"for pkg in ${items}; do cd /usr/void-packages 2>/dev/null && ./xbps-src pkg \\\"$pkg\\\"; done\""
 implementations["xbps", "reinstall-packages"]       = "strat -r ${stratum} xbps-install ${flags} -f -- ${items}"
 implementations["xbps", "remove-packages-limited"]  = "strat -r ${stratum} xbps-remove ${flags} -- ${items}"
 implementations["xbps", "remove-packages-full"]     = "strat -r ${stratum} xbps-remove ${flags} -- ${items}"

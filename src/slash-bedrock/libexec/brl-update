@@ -240,10 +240,22 @@ fi
 
 notice "Applying update"
 
+if[ -d "/bedrock/etc/hooks/pre-update.d" ]; then
+	for hook in /bedrock/etc/hooks/pre-update.d/*; do
+		[ -x "${hook}" ] && "${hook}"
+	done
+fi
+
 if "${force}"; then
 	/bedrock/libexec/busybox sh "${update}" --force-update
 else
 	/bedrock/libexec/busybox sh "${update}" --update
+fi
+
+if[ -d "/bedrock/etc/hooks/post-update.d" ]; then
+	for hook in /bedrock/etc/hooks/post-update.d/*; do
+		[ -x "${hook}" ] && "${hook}"
+	done
 fi
 
 exit_success

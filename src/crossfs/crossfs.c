@@ -249,6 +249,10 @@ enum ipath_class {
 	 */
 	CLASS_LOCAL,
 	/*
+	 * Refers to the dynamic debug level control file.
+	 */
+	CLASS_DEBUG,
+	/*
 	 * Does not refer to any expected file path.
 	 */
 	CLASS_ENOENT,
@@ -479,6 +483,12 @@ static struct stat local_stat;
 static off_t bouncer_size;
 
 /*
+ * Dynamic debug variable
+ */
+static int crossfs_debug_level = 0;
+#define DLOG(fmt, ...) do { if (crossfs_debug_level) { FILE *f = fopen("/bedrock/var/log/crossfs.log", "a"); if (f) { fprintf(f, "[crossfs] " fmt "\n", ##__VA_ARGS__); fclose(f); } } } while(0)
+
+/*
  * Set the fsuid and fsgid to that of the calling function.  setfsuid/setfsgid
  * do not indicate success/failure; we have to trust they succeed.  A check
  * against `getuid()==0` is performed when this process starts to ensure
@@ -662,6 +672,10 @@ static inline enum ipath_class classify_ipath(const char *ipath, size_t ipath_le
 
 	if (ipath[0] == '/' && ipath[1] == '\0') {
 		return CLASS_ROOT;
+	}
+
+	if (pstrcmp(ipath, ipath_len, "/.debug_level", 13) == 0) {
+		return CLASS_DEBUG;
 	}
 
 	if (pstrcmp(ipath, ipath_len, CFG_PATH, CFG_PATH_LEN) == 0) {
@@ -1829,6 +1843,7 @@ static int m_getattr(const char *ipath, struct stat *stbuf, struct fuse_file_inf
 	switch (classify_ipath(ipath, ipath_len, &cfg)) {
 	case CLASS_BACK:
 		rv = getattr_back(cfg, ipath, ipath_len, stbuf);
+		DLOG("getattr_back: %s", ipath);
 		break;
 
 	case CLASS_VDIR:
@@ -1838,6 +1853,15 @@ static int m_getattr(const char *ipath, struct stat *stbuf, struct fuse_file_inf
 		break;
 
 	case CLASS_CFG:
+		*stbuf = cfg_stat;
+		rv = 0;
+		break;
+
+	case CLASS_DEBUG:
+		*stbuf = cfg_stat;
+		stbuf->st_size = 2;
+		rv = 0;
+		break;
 		*stbuf = cfg_stat;
 		rv = 0;
 		break;
@@ -1867,6 +1891,7 @@ static int m_readlink(const char *ipath, char *buf, size_t size)
 	case CLASS_VDIR:
 	case CLASS_ROOT:
 	case CLASS_CFG:
+	case CLASS_DEBUG:
 		rv = -EINVAL;
 		break;
 
@@ -1912,6 +1937,7 @@ static int m_readdir(const char *ipath, void *buf, fuse_fill_dir_t filler,
 	case CLASS_ROOT:
 		rv |= insert_h_str(&files, CFG_NAME, CFG_NAME_LEN);
 		rv |= insert_h_str(&files, LOCAL_ALIAS_NAME, LOCAL_ALIAS_NAME_LEN);
+		rv |= insert_h_str(&files, ".debug_level", 13);
 		ipath_len = 0;
 		/* fallthrough */
 	case CLASS_VDIR:
@@ -1983,6 +2009,16 @@ static int m_open(const char *ipath, struct fuse_file_info *fi)
 	case CLASS_VDIR:
 	case CLASS_ROOT:
 		rv = 0;
+		break;
+
+	case CLASS_DEBUG:
+		;
+		struct fuse_context *ctx = fuse_get_context();
+		if (ctx->uid != 0) {
+			rv = -EACCES;
+		} else {
+			rv = 0;
+		}
 		break;
 
 	case CLASS_CFG:
@@ -2186,6 +2222,14 @@ static int m_read(const char *ipath, char *buf, size_t size, off_t offset, struc
 		rv = read_back(cfg, ipath, ipath_len, buf, size, offset);
 		break;
 
+	case CLASS_DEBUG:
+		if (size > 0) {
+			buf[0] = crossfs_debug_level ? '1' : '0';
+			if (size > 1) buf[1] = '\n';
+			rv = MIN(size, 2);
+		} else { rv = 0; }
+		break;
+
 	case CLASS_CFG:
 		;
 		struct fuse_context *context = fuse_get_context();
@@ -2243,7 +2287,14 @@ static int m_write(const char *ipath, const char *buf, size_t size, off_t offset
 
 	size_t ipath_len = strlen(ipath);
 	struct fuse_context *context = fuse_get_context();
-	if (pstrcmp(ipath, ipath_len, CFG_PATH, CFG_PATH_LEN) != 0) {
+	if (pstrcmp(ipath, ipath_len, "/.debug_level", 13) == 0) {
+		if (context->uid != 0) {
+			rv = -EACCES;
+		} else if (size > 0 && (buf[0] == '0' || buf[0] == '1')) {
+			crossfs_debug_level = buf[0] - '0';
+			rv = size;
+		} else { rv = -EINVAL; }
+	} else if (pstrcmp(ipath, ipath_len, CFG_PATH, CFG_PATH_LEN) != 0) {
 		rv = -EROFS;
 	} else if (context->uid != 0) {
 		rv = -EACCES;

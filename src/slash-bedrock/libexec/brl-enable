@@ -99,6 +99,12 @@ enable_stratum() {
 
 	if ! "${skip_crossfs}"; then
 		cfg_crossfs "/proc/1/root/bedrock/strata/bedrock/bedrock/cross"
+
+	if[ -d "/bedrock/etc/hooks/post-enable.d" ]; then
+		for hook in /bedrock/etc/hooks/post-enable.d/*; do
+			[ -x "${hook}" ] && "${hook}" "${stratum}"
+		done
+	fi
 	fi
 }
 

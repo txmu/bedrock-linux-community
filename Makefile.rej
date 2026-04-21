@@ -1,0 +1,21 @@
+--- Makefile
++++ Makefile
+@@ -148,11 +148,17 @@
+ 	mkdir -p $(SLASHBR)/bin
+ 	mkdir -p $(SLASHBR)/etc
+ 	mkdir -p $(SLASHBR)/gnupg-keys
+ 	mkdir -p $(SLASHBR)/info
+ 	mkdir -p $(SLASHBR)/libexec
++	mkdir -p $(SLASHBR)/libexec/plugins
+ 	mkdir -p $(SLASHBR)/run
+ 	mkdir -p $(SLASHBR)/share/brl-fetch/distros
++	mkdir -p $(SLASHBR)/share/pmm/plugins
++	mkdir -p $(SLASHBR)/etc/hooks/pre-init.d
++	mkdir -p $(SLASHBR)/etc/hooks/post-enable.d
++	mkdir -p $(SLASHBR)/etc/hooks/post-disable.d
++	mkdir -p $(SLASHBR)/etc/hooks/pre-update.d
++	mkdir -p $(SLASHBR)/etc/hooks/post-update.d
+ 	mkdir -p $(SLASHBR)/strata/bedrock
+ 	mkdir -p $(SLASHBR)/var
+ 	mkdir -p $(COMPLETED)
+--- a/src/crossfs/crossfs.c

@@ -26,6 +26,7 @@ user_interfaces["apk", "verbose"]    = "-v/--verbose"
 # Operations which directly forward the underlying command output.
 #
 user_interfaces["apk", "install-packages"]         = "pmm add <pkgs>"
+user_interfaces["apk", "build-packages"]           = "pmm build <pkgs>"
 user_interfaces["apk", "reinstall-packages"]       = "pmm fix -r/--reinstall <pkgs>"
 user_interfaces["apk", "remove-packages-limited"]  = "" # uses combine remove-packages,remove-orphans
 user_interfaces["apk", "remove-packages-full"]     = "" # uses combine remove-packages,remove-orphans
@@ -42,6 +43,7 @@ user_interfaces["apk", "upgrade-packages-limited"] = "" # no limited upgrade con
 user_interfaces["apk", "upgrade-packages-full"]    = "pmm upgrade"
 
 implementations["apk", "install-packages"]         = "strat -r ${stratum} apk ${flags} add -- ${items}"
+implementations["apk", "build-packages"]           = "${unprivileged_user} strat -r ${stratum} sh -c \"for pkg in ${items}; do find /var/aports /usr/ports -maxdepth 3 -name \\\"$pkg\\\" -type d -exec sh -c \\\"cd {} && abuild -r\\\" \\\; ; done\""
 implementations["apk", "reinstall-packages"]       = "strat -r ${stratum} apk ${flags} fix -r -- ${items}"
 implementations["apk", "remove-packages-limited"]  = "strat -r ${stratum} apk ${flags} del -- ${items}"
 implementations["apk", "remove-packages-full"]     = "strat -r ${stratum} apk ${flags} del --purge -- ${items}"

@@ -1098,6 +1098,12 @@ disable_stratum() {
 	# Remove all mounts.
 	root="$(stratum_root "${stratum}")"
 	umount_r --init "${root}"
+
+	if[ -d "/bedrock/etc/hooks/post-disable.d" ]; then
+		for hook in /bedrock/etc/hooks/post-disable.d/*; do
+			[ -x "${hook}" ] && "${hook}" "${stratum}"
+		done
+	fi
 }
 
 # Attempt to remove a directory while minimizing the chance of accidentally

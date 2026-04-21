@@ -231,7 +231,7 @@ fi
 # from the operation name to pmm implementation details.
 #
 initialize_awk_variables="${initialize_awk_variables}
-$(cat /bedrock/share/pmm/package_managers/* /bedrock/share/pmm/help /bedrock/share/pmm/flags /bedrock/share/pmm/operations)"
+$(cat /bedrock/share/pmm/package_managers/* /bedrock/share/pmm/help /bedrock/share/pmm/flags /bedrock/share/pmm/operations /bedrock/share/pmm/plugins/* 2>/dev/null)"
 
 #
 # Execute main awk body of pmm
@@ -864,6 +864,10 @@ function run_shell(cmd, stratum, package_manager, items, show) {
 		if ("confirm" in global_flags) {
 			prompt("About to run above command.")
 		}
+	}
+	if ("dry-run" in global_flags) {
+		printf("%s[DRY-RUN]%s Stratum: %s | PM: %s | Command: %s\n", color["warn"], color["norm"], stratum, package_manager, cmd) > "/dev/stderr"
+		return 0
 	}
 	return system(env""cmd)
 }

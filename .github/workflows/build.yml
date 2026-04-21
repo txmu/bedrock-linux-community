@@ -1,0 +1,80 @@
+name: Build Bedrock Linux Installer
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    # The workflow will be skipped if ALL changed files match these patterns.
+    # Useful for saving CI minutes on purely documentation/meta commits.
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+      - 'LICENSE'
+      - 'docs/**'
+  pull_request:
+    branches: [ "main", "master" ]
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+      - 'LICENSE'
+      - 'docs/**'
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Installer (x86_64)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Cache downloaded upstream sources
+        uses: actions/cache@v4
+        with:
+          path: vendor/
+          # The cache key depends on the Makefile, as it contains the hardcoded tags/versions 
+          # for upstream dependencies. If the Makefile changes, the cache will be rebuilt.
+          key: ${{ runner.os }}-bedrock-vendor-${{ hashFiles('Makefile') }}
+          restore-keys: |
+            ${{ runner.os }}-bedrock-vendor-
+
+      - name: Install build dependencies
+        # Install necessary packages based on the Makefile and README.md requirements.
+        # Note: 'autopoint' is provided by 'gettext', and 'udev' build headers by 'libudev-dev'.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            autoconf \
+            automake \
+            gettext \
+            bison \
+            fakeroot \
+            flex \
+            git \
+            gzip \
+            libtool \
+            make \
+            meson \
+            ninja-build \
+            pkg-config \
+            rsync \
+            libudev-dev \
+            wget
+
+      - name: Compile Bedrock Linux Userland
+        # Build the installer script.
+        # SKIPSIGN=true: Skip the GPG signing step since CI does not have the private key.
+        # -j$(nproc): Utilize all available CPU cores to drastically speed up compilation.
+        # --output-sync=target: Ensure that parallel build logs remain grouped and readable.
+        run: |
+          make SKIPSIGN=true -j$(nproc) --output-sync=target
+
+      - name: Upload Installer Artifact
+        # Uploads the generated .sh file so you can download it from the GitHub UI.
+        uses: actions/upload-artifact@v4
+        with:
+          name: bedrock-installer-x86_64
+          path: bedrock-linux-*.sh
+          if-no-files-found: error

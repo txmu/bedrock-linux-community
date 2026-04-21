@@ -1,0 +1,38 @@
+#!/bedrock/libexec/busybox sh
+. /bedrock/share/common-code
+
+print_help() {
+	printf "Usage: ${color_cmd}brl doctor${color_norm}\n\nDiagnose system health issues.\n"
+}
+handle_help "${@:-}"
+require_root
+
+warn_count=0
+issue() {
+	printf "${color_alert}Issue found:${color_norm} %s\n" "$1"
+	warn_count=$((warn_count + 1))
+}
+
+notice "Checking cross-stratum symlinks..."
+for f in /bedrock/cross/bin/*; do
+	if [ -L "$f" ] && ![ -e "$f" ]; then
+		issue "Dead symlink in cross bin: $f"
+	fi
+done
+
+notice "Checking resolv.conf..."
+if ! [ -L /etc/resolv.conf ]; then
+	issue "/etc/resolv.conf is a regular file, but should be a symlink. Run 'brl apply' or fix manually."
+fi
+
+notice "Checking bedrock.conf syntax..."
+if ! /bedrock/libexec/busybox awk -f /dev/null /bedrock/etc/bedrock.conf >/dev/null 2>&1; then
+	issue "Syntax error in /bedrock/etc/bedrock.conf"
+fi
+
+if [ "$warn_count" -eq 0 ]; then
+	printf "${color_okay}System looks healthy!${color_norm}\n"
+else
+	printf "${color_warn}Found %d issue(s) that may require attention.${color_norm}\n" "$warn_count"
+fi
+exit_success

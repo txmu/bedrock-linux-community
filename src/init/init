@@ -459,6 +459,12 @@ step "Applying configuration"
 /bedrock/libexec/brl-apply --skip-repair
 
 step "Starting Kernel Monitor"
+
+if [ -d "/bedrock/etc/hooks/pre-init.d" ]; then
+	for hook in /bedrock/etc/hooks/pre-init.d/*; do
+		[ -x "${hook}" ] && "${hook}" "${init_stratum}"
+	done
+fi
 if [ -x /bedrock/libexec/brl-kmon ]; then /bedrock/libexec/brl-kmon >/dev/null 2>&1 & fi
 
 step "Handing control off to ${color_strat}${init_stratum}${color_glue}:${color_cmd}${init_cmd}${color_norm}"

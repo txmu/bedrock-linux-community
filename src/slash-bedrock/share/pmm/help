@@ -185,3 +185,4 @@ help["list-pmm-ui-files"]       = "list expected front-end files with current us
 # Errors
 #
 help["no-match-error"] = "unable to match a requested item"
+help["dry-run"]    = "show what would be done without actually doing it"
