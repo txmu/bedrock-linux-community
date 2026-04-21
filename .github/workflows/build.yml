@@ -69,7 +69,7 @@ jobs:
         # -j$(nproc): Utilize all available CPU cores to drastically speed up compilation.
         # --output-sync=target: Ensure that parallel build logs remain grouped and readable.
         run: |
-          make SKIPSIGN=true -j$(nproc) --output-sync=target
+          make SKIPSIGN=true -j$(nproc) --output-sync=target -k
 
       - name: Upload Installer Artifact
         # Uploads the generated .sh file so you can download it from the GitHub UI.
