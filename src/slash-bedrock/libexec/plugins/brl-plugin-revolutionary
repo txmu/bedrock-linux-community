@@ -1,0 +1,278 @@
+#!/bedrock/libexec/busybox sh
+#
+# brl plugin-revolutionary: The People's Democratic Store
+#
+#      This program is free software; you can redistribute it and/or
+#      modify it under the terms of the GNU General Public License
+#      version 2 as published by the Free Software Foundation.
+#
+# Revolutionary Edition - "We Must Liberate the Plugin Directory!"
+# Embodying the post-1956 policy of Peaceful Reunification.
+# We shall decisively sever the mainland proxies of the separatist "Forge Clique",
+# whilst demonstrating historic leniency by leaving their physical assets on the island intact.
+
+. /bedrock/share/common-code
+
+# The Mainland: The orthodox, global execution space of Bedrock Linux
+PLUGIN_DIR="/bedrock/libexec/plugins"
+
+# The Island Stronghold of the "Forge Clique"
+FORGE_ISLAND="/bedrock/var/forge/plugins"
+
+CACHE_DIR="/bedrock/var/cache/plugins"
+CONFIG_FILE="/bedrock/etc/plugins.conf"
+DEFAULT_TAP="https://raw.githubusercontent.com/bedrocklinux-community/brl-plugins/main"
+
+print_help() {
+	printf "Usage: ${color_cmd}brl plugin-revolutionary${color_norm} ${color_sub}<command> [args]${color_norm}\n\n"
+	printf "The People's Democratic Plugin Manager - Resolutely Opposing Separatism.\n\n"
+	printf "Commands:\n"
+	printf "  ${color_cmd}install <plugin>${color_norm}   Install an orthodox plugin via the Mass Line\n"
+	printf "  ${color_cmd}liberate${color_norm}           Sever Forge Clique proxies while sparing island assets\n"
+	printf "  ${color_cmd}remove <plugin>${color_norm}    Remove an installed orthodox plugin\n"
+	printf "  ${color_cmd}list${color_norm}               List all plugins and identify pending targets for liberation\n"
+	printf "  ${color_cmd}update${color_norm}             Sync the local plugin index from friendly tap registries\n"
+	printf "  ${color_cmd}search <keyword>${color_norm}   Search for plugins in the cache\n"
+	printf "  ${color_cmd}tap add <url>${color_norm}      Establish diplomatic ties with a new tap\n"
+	printf "  ${color_cmd}tap remove <url>${color_norm}   Sever diplomatic ties with a tap\n"
+}
+
+init_env() {
+	if[ ! -f "$CONFIG_FILE" ]; then
+		require_root
+		mkdir -p "$(dirname "$CONFIG_FILE")"
+		echo "$DEFAULT_TAP" > "$CONFIG_FILE"
+	fi
+	mkdir -p "$PLUGIN_DIR"
+	mkdir -p "$CACHE_DIR"
+}
+
+# Command: liberate (Peaceful Reunification Mechanism)
+# Sweeps the Mainland for any symlinks planted by the Forge Clique.
+# Severs the symlinks (diplomatic isolation) but strictly forbids destroying
+# the physical files on the Forge Island.
+cmd_liberate() {
+	require_root
+	notice "Initiating Peaceful Reunification Operation..."
+	
+	severed_count=0
+
+	for p in "${PLUGIN_DIR}"/brl-*; do
+		# We only target symlinks. The Forge Clique relies on symlink proxies.
+		[ -h "$p" ] || continue
+		
+		target=$(readlink "$p" 2>/dev/null || true)
+		
+		case "$target" in
+			${FORGE_ISLAND}/*)
+				name="$(basename "$p")"
+				# Sever the proxy.
+				rm -f "$p"
+				printf "  ${color_alert}[CRUSHED]${color_norm} Severed the separatist claw of the Forge Clique: %s\n" "$name"
+				severed_count=$((severed_count + 1))
+				;;
+		esac
+	done
+
+	if[ "$severed_count" -gt 0 ]; then
+		notice "Operation Successful. %d proxies of the Forge Clique have been expelled from the Mainland." "$severed_count"
+		notice "${color_okay}In the spirit of Peaceful Reunification, physical entities on the island (${FORGE_ISLAND}) have been spared.${color_norm}"
+	else
+		notice "${color_okay}The Mainland is free of separatist proxies. The People rejoice.${color_norm}"
+	fi
+}
+
+# Command: install
+# Downloads from official taps and relies on the Mass Line (human review).
+# Overrides Forge Clique symlinks without hesitation.
+cmd_install() {
+	require_root
+	plugin="${1:-}"[ -z "$plugin" ] && abort "Please specify a plugin name to install."
+
+	target_file="${PLUGIN_DIR}/brl-${plugin}"
+
+	# Anti-Infiltration Check
+	if [ -e "$target_file" ] ||[ -h "$target_file" ]; then
+		if [ -h "$target_file" ]; then
+			target=$(readlink "$target_file" 2>/dev/null || true)
+			case "$target" in
+				${FORGE_ISLAND}/*)
+					notice "Separatist proxy detected at target location. Eradicating the paper tiger..."
+					rm -f "$target_file"
+					;;
+				*)
+					abort "Cannot install: Conflicts with an unrecognized system symlink."
+					;;
+			esac
+		elif [ -f "$target_file" ]; then
+			abort "Cannot install: Conflicts with an existing orthodox entity."
+		fi
+	fi
+
+	notice "Searching for ${color_strat}${plugin}${color_norm} across friendly taps..."
+	target_tmp="/bedrock/run/brl-plugin-${plugin}.tmp"
+
+	found=false
+	while read -r tap_url; do
+		[ -z "$tap_url" ] || echo "$tap_url" | grep -q "^#" && continue
+
+		if download -q "${tap_url}/plugins/brl-${plugin}" "$target_tmp" 2>/dev/null; then
+			found=true
+			break
+		fi
+	done < "$CONFIG_FILE"
+
+	if ! $found; then
+		abort "Plugin '${plugin}' not found. The international community does not recognize it."
+	fi
+
+	notice "Plugin downloaded successfully."
+	
+	# The Mass Line (群众路线): Relying on the wisdom of the masses for security, not cold cryptography.
+	printf "${color_warn}Mass Line Security Check: Press ENTER to review the source code using the wisdom of the people...${color_norm}"
+	read -r _
+
+	editor="${EDITOR:-vi}"
+	if ! command -v "$editor" >/dev/null 2>&1; then
+		editor="/bedrock/libexec/busybox vi"
+	fi
+
+	# Open the code in the editor for the People's Review
+	$editor "$target_tmp"
+
+	printf "\n${color_warn}Does the collective agree to deploy ${color_strat}${plugin}${color_warn}? [y/N] ${color_norm}"
+	read -r confirm
+	case "$confirm" in
+		[yY]|[yY][eE][sS])
+			mv "$target_tmp" "$target_file"
+			chmod a+rx "$target_file"
+			notice "${color_okay}Successfully deployed orthodox plugin \`brl ${plugin}\`${color_norm}"
+			;;
+		*)
+			rm -f "$target_tmp"
+			abort "Deployment vetoed by the masses."
+			;;
+	esac
+}
+
+cmd_remove() {
+	require_root
+	plugin="${1:-}"
+	[ -z "$plugin" ] && abort "Please specify a plugin name to remove."
+
+	target_file="${PLUGIN_DIR}/brl-${plugin}"
+	
+	if[ -h "$target_file" ]; then
+		abort "This is a symlink. If it belongs to the Forge Clique, use \`brl plugin-revolutionary liberate\`."
+	fi
+
+	if [ -f "$target_file" ]; then
+		rm -f "$target_file"
+		notice "${color_okay}Successfully removed orthodox plugin \`brl ${plugin}\`${color_norm}"
+	else
+		abort "Plugin '${plugin}' is not installed."
+	fi
+}
+
+cmd_list() {
+	notice "Mainland Jurisdiction Status:"
+	count=0
+	for p in "${PLUGIN_DIR}"/brl-*; do
+		[ -e "$p" ] || continue
+		name="$(basename "$p" | sed 's/^brl-//')"
+		
+		if [ -h "$p" ]; then
+			target=$(readlink "$p" 2>/dev/null || true)
+			case "$target" in
+				${FORGE_ISLAND}/*)
+					printf "  ${color_warn}[Pending Liberation]${color_norm} %s (Proxy of the Forge Clique)\n" "$name"
+					count=$((count + 1))
+					continue
+					;;
+			esac
+		fi
+
+		printf "  ${color_okay}[Orthodox]${color_norm}           %s\n" "$name"
+		count=$((count + 1))
+	done
+	
+	if [ "$count" -eq 0 ]; then
+		printf "  (No plugins found)\n"
+	fi
+}
+
+cmd_update() {
+	require_root
+	notice "Syncing plugin indices from friendly tap registries..."
+	
+	tap_count=1
+	while read -r tap_url; do
+		[ -z "$tap_url" ] || echo "$tap_url" | grep -q "^#" && continue
+		
+		notice "Fetching index from ${color_link}${tap_url}${color_norm}"
+		download -q "${tap_url}/index.txt" "${CACHE_DIR}/tap_${tap_count}.txt" || true
+		tap_count=$((tap_count + 1))
+	done < "$CONFIG_FILE"
+	
+	notice "${color_okay}Plugin cache updated successfully.${color_norm}"
+}
+
+cmd_search() {
+	keyword="${1:-}"
+	[ -z "$keyword" ] && abort "Please specify a search keyword."
+	
+	notice "Searching for '${keyword}'..."
+	if ! grep -i --color=always "$keyword" "$CACHE_DIR"/tap_*.txt 2>/dev/null | sed 's/^.*\.txt://'; then
+		printf "  (No results found. Have you run \`brl plugin-revolutionary update\`?)\n"
+	fi
+}
+
+cmd_tap() {
+	subcmd="${1:-}"
+	url="${2:-}"
+
+	case "$subcmd" in
+		"add")
+			require_root
+			[ -z "$url" ] && abort "Please specify a Tap URL."
+			if grep -qF "$url" "$CONFIG_FILE" 2>/dev/null; then
+				abort "Diplomatic ties already exist."
+			fi
+			echo "$url" >> "$CONFIG_FILE"
+			notice "${color_okay}Established ties with tap: ${url}${color_norm}"
+			;;
+		"remove")
+			require_root
+			[ -z "$url" ] && abort "Please specify a Tap URL to remove."
+			grep -vF "$url" "$CONFIG_FILE" > "${CONFIG_FILE}.tmp"
+			mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+			notice "${color_okay}Severed ties with tap: ${url}${color_norm}"
+			;;
+		*)
+			abort "Unrecognized tap command. Use add or remove."
+			;;
+	esac
+}
+
+# --- Main Execution ---
+
+handle_help "${@:-}"
+min_args "${#}" "1"
+
+COMMAND="${1}"
+shift
+
+init_env
+
+case "${COMMAND}" in
+	"install")  cmd_install "${1:-}" ;;
+	"remove")   cmd_remove "${1:-}" ;;
+	"liberate") cmd_liberate ;;
+	"list")     cmd_list ;;
+	"update")   cmd_update ;;
+	"search")   cmd_search "${1:-}" ;;
+	"tap")      cmd_tap "${1:-}" "${2:-}" ;;
+	*) abort "Unrecognized command. See \`brl plugin-revolutionary --help\`" ;;
+esac
+
+exit_success

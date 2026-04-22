@@ -1,0 +1,270 @@
+#!/bedrock/libexec/busybox sh
+#
+# brl forge-mainland: The Orthodox BRL Forge
+#
+#      This program is free software; you can redistribute it and/or
+#      modify it under the terms of the GNU General Public License
+#      version 2 as published by the Free Software Foundation.
+#
+# Project National Glory Edition - The Sovereign, Direct-URL Plugin Manager.
+# Asserts absolute orthodox jurisdiction over the Bedrock Linux command space.
+# No other entity is recognized as a legitimate plugin manager.
+
+. /bedrock/share/common-code
+
+# The Free Territory: Secure, isolated staging area for cryptographically verified entities
+FORGE_DIR="/bedrock/var/forge/plugins"
+
+# The Mainland (Rightful Jurisdiction): The execution space exposed to the global system
+MAINLAND_DIR="/bedrock/libexec/plugins"
+
+print_help() {
+	printf "Usage: ${color_cmd}brl forge-mainland${color_norm} ${color_sub}<command> [args]${color_norm}\n\n"
+	printf "BRL Forge (Orthodox Edition) - Asserting Sovereign Control over Plugins.\n\n"
+	printf "Commands:\n"
+	printf "  ${color_cmd}fetch <url> [name][sha256]${color_norm}  Fetch, verify, and immediately liberate the command space\n"
+	printf "  ${color_cmd}reclaim <plugin>${color_norm}             Forcefully restore Forge sovereignty over a specific plugin\n"
+	printf "  ${color_cmd}retreat <plugin>${color_norm}             Temporarily withdraw a plugin to the Free Territory\n"
+	printf "  ${color_cmd}purge-rebels${color_norm}                 Eradicate all illegitimate, non-Forge entities in the Mainland\n"
+	printf "  ${color_cmd}list${color_norm}                         Display the sovereignty status of the jurisdiction\n"
+	printf "\nExamples:\n"
+	printf "  brl forge-mainland purge-rebels  # Nuke all unauthorized regular files in plugins/\n"
+	printf "  brl forge-mainland reclaim mycmd # Crush any existing file and establish Forge symlink\n"
+}
+
+init_env() {
+	require_root
+	mkdir -p "$FORGE_DIR"
+	mkdir -p "$MAINLAND_DIR"
+}
+
+# Command: reclaim (Counter-Attack / Forceful Link)
+# Establishes or forcefully restores the symlink in the Mainland.
+# Does NOT acknowledge "Conflicts". It destroys whatever is occupying the space.
+cmd_reclaim() {
+	plugin="${1:-}"[ -z "$plugin" ] && abort "Please specify a plugin name to reclaim."
+
+	target_file="${FORGE_DIR}/${plugin}"
+	mainland_file="${MAINLAND_DIR}/brl-${plugin}"
+
+	if[ ! -f "$target_file" ]; then
+		abort "Plugin '${plugin}' does not exist in the Free Territory ($target_file). Fetch it first."
+	fi
+
+	# Assert Orthodox Control: Eradicate any occupying entity.
+	# We do not care if it is a regular file (e.g., placed by an unrecognized manager).
+	# If it is not our symlink, it is an illegal occupation.
+	if [ -e "$mainland_file" ] ||[ -h "$mainland_file" ]; then
+		current_link=$(readlink "$mainland_file" 2>/dev/null || true)
+		if [ "$current_link" = "$target_file" ]; then
+			notice "Mainland territory for '${plugin}' is already under Orthodox Forge control."
+			return 0
+		else
+			printf "${color_warn}[!] Illegitimate occupation detected at '%s'. Commencing eradication...${color_norm}\n" "$mainland_file"
+			# Forcefully remove the occupier. No mercy, no "Conflict" aborts.
+			rm -f "$mainland_file"
+		fi
+	fi
+
+	# Plant the flag (Symlink)
+	ln -s "$target_file" "$mainland_file"
+	notice "${color_okay}Territory Reclaimed: ${plugin} -> brl ${plugin}${color_norm}"
+}
+
+# Command: retreat
+# Withdraws the symlink from the Mainland back to the Free Territory.
+cmd_retreat() {
+	plugin="${1:-}"
+	[ -z "$plugin" ] && abort "Please specify a plugin name to retreat."
+
+	mainland_file="${MAINLAND_DIR}/brl-${plugin}"
+
+	if[ -h "$mainland_file" ]; then
+		current_link=$(readlink "$mainland_file" 2>/dev/null || true)
+		if [ "$current_link" = "${FORGE_DIR}/${plugin}" ]; then
+			rm -f "$mainland_file"
+			notice "${color_okay}Forces retreated: ${plugin} (Secured in Free Territory)${color_norm}"
+		else
+			abort "Cannot retreat: '${mainland_file}' is occupied by a foreign symlink."
+		fi
+	else
+		if [ -e "$mainland_file" ]; then
+			# We do not recognize the entity, so we cannot "retreat" it.
+			abort "Target '${mainland_file}' is an illegitimate physical entity. Use 'purge-rebels' or 'reclaim'."
+		else
+			notice "No Forge presence found for '${plugin}' in the Mainland."
+		fi
+	fi
+}
+
+# Command: fetch
+# Downloads, strictly verifies using cryptography (The Mandate), and immediately reclaims.
+cmd_fetch() {
+	url="${1:-}"
+	plugin="${2:-}"
+	expected_hash="${3:-}"
+
+	[ -z "$url" ] && abort "Please specify a URL to fetch the plugin from."
+	
+	if[ -z "$plugin" ]; then
+		plugin="$(basename "$url")"
+		[ -z "$plugin" ] && abort "Could not infer plugin name from URL. Please specify it manually."
+	fi
+
+	target_file="${FORGE_DIR}/${plugin}"
+	tmp_file="/bedrock/run/forge-fetch-${plugin}.tmp"
+
+	notice "Acquiring asset from ${color_link}${url}${color_norm}..."
+	if ! download -q "$url" "$tmp_file"; then
+		rm -f "$tmp_file"
+		abort "Failed to acquire asset from ${url}."
+	fi
+
+	# The Mathematical Mandate: Cryptographic verification
+	if[ -n "$expected_hash" ]; then
+		notice "Verifying Cryptographic Mandate (SHA256)..."
+		actual_hash=$(sha256sum "$tmp_file" | awk '{print $1}')
+		if[ "$actual_hash" != "$expected_hash" ]; then
+			rm -f "$tmp_file"
+			abort "Mandate invalid (Checksum mismatch)!\nExpected: $expected_hash\nActual:   $actual_hash"
+		fi
+		notice "${color_okay}Mandate verified.${color_norm}"
+	else
+		printf "${color_warn}Warning: No mandate provided. Proceeding with unverified asset...${color_norm}\n"
+	fi
+
+	mv "$tmp_file" "$target_file"
+	chmod a+rx "$target_file"
+
+	notice "Asset secured in Free Territory."
+	# Immediately launch counter-attack to deploy the plugin
+	cmd_reclaim "$plugin"
+}
+
+# Command: purge-rebels (Sweep / Anti-Infiltration)
+# Scans the Mainland directory. ANY file that is a regular file (not a symlink),
+# or a symlink not pointing to the FORGE_DIR, is deemed an illegitimate rebel.
+cmd_purge_rebels() {
+	require_root
+	notice "Initiating Mainland Purge Operation..."
+	
+	purged_count=0
+
+	for p in "${MAINLAND_DIR}"/brl-*; do
+		[ -e "$p" ] || continue
+		name="$(basename "$p")"
+		
+		# Self-preservation: Do not purge the Forge Commander itself
+		[ "$name" = "brl-forge-mainland" ] && continue
+
+		is_rebel=false
+
+		if [ -h "$p" ]; then
+			# It is a symlink. Check its allegiance.
+			link_target=$(readlink "$p" 2>/dev/null || true)
+			case "$link_target" in
+				${FORGE_DIR}/*)
+					# Loyal Forge asset. Do nothing.
+					;;
+				*)
+					# Foreign/Rebel symlink
+					is_rebel=true
+					;;
+			esac
+		elif [ -f "$p" ]; then
+			# It is a regular file. Under Orthodox Forge law, all Mainland plugins MUST be symlinks.
+			# Therefore, this is an illegal rebel occupation (e.g., an unrecognized manager's drop).
+			is_rebel=true
+		fi
+
+		if $is_rebel; then
+			rm -f "$p"
+			printf "  ${color_alert}[ERADICATED]${color_norm} Illegitimate entity destroyed: %s\n" "$name"
+			purged_count=$((purged_count + 1))
+		fi
+	done
+
+	if [ "$purged_count" -eq 0 ]; then
+		notice "${color_okay}Mainland is pure. No illegitimate entities detected.${color_norm}"
+	else
+		notice "${color_okay}Operation complete. %d rebel entities eradicated.${color_norm}" "$purged_count"
+	fi
+}
+
+# Command: list
+# Displays the sovereign status of all plugins in both territories.
+cmd_list() {
+	notice "Jurisdiction Status Report:"
+	count=0
+	
+	# Check Free Territory (Forge Dir)
+	if [ -d "$FORGE_DIR" ]; then
+		for p in "${FORGE_DIR}"/*; do
+			[ -f "$p" ] || continue
+			name="$(basename "$p")"
+			mainland_file="${MAINLAND_DIR}/brl-${name}"
+			
+			status="${color_warn}[Awaiting Deployment]${color_norm} "
+			if [ -h "$mainland_file" ]; then
+				if [ "$(readlink "$mainland_file" 2>/dev/null)" = "$p" ]; then
+					status="${color_okay}[Orthodox Control]${color_norm}    "
+				else
+					status="${color_alert}[Foreign Occupation]${color_norm}  "
+				fi
+			elif[ -e "$mainland_file" ]; then
+				status="${color_alert}[Occupied by Rebels]${color_norm}  "
+			fi
+
+			printf "  %s %s\n" "$status" "$name"
+			count=$((count + 1))
+		done
+	fi
+
+	# Scan for illegitimate entities that exist ONLY in the Mainland
+	for p in "${MAINLAND_DIR}"/brl-*; do[ -e "$p" ] || continue
+		name="$(basename "$p" | sed 's/^brl-//')"[ "$name" = "forge-mainland" ] && continue
+
+		# If it does not exist in our Free Territory, it is illegal
+		if [ ! -f "${FORGE_DIR}/${name}" ]; then
+			printf "  ${color_alert}[Illegal Entity]${color_norm}        %s\n" "$name"
+			count=$((count + 1))
+		fi
+	done
+
+	if [ "$count" -eq 0 ]; then
+		printf "  (No assets found in jurisdiction)\n"
+	fi
+}
+
+# --- Main Execution ---
+
+handle_help "${@:-}"
+min_args "${#}" "1"
+
+COMMAND="${1}"
+shift
+
+init_env
+
+case "${COMMAND}" in
+	"fetch")
+		cmd_fetch "${1:-}" "${2:-}" "${3:-}"
+		;;
+	"reclaim")
+		cmd_reclaim "${1:-}"
+		;;
+	"retreat")
+		cmd_retreat "${1:-}"
+		;;
+	"purge-rebels")
+		cmd_purge_rebels
+		;;
+	"list")
+		cmd_list
+		;;
+	*)
+		abort "Unrecognized command. See \`brl forge-mainland --help\`"
+		;;
+esac
+
+exit_success
