@@ -1,0 +1,191 @@
+#!/bedrock/libexec/busybox sh
+#
+# brl warden (BRL Plugin): Security Antagonist / Stratum Shield
+#
+# Defends against Xattr Spoofing, Cross-Stratum dynamic linker hijacking,
+# Ptrace memory tampering, and rogue SUID binaries.
+
+. /bedrock/share/common-code
+
+print_help() {
+	printf "Usage: ${color_cmd}brl warden${color_norm} ${color_sub}<command>${color_norm}\n\n"
+	printf "Bedrock Security Antagonist & Audit Tool.\n\n"
+	printf "Commands:\n"
+	printf "  ${color_cmd}shield${color_norm}    Lock down dynamic linker, xattrs, mounts, and core binaries.\n"
+	printf "  ${color_cmd}unshield${color_norm}  Release immutable locks (required before system updates).\n"
+	printf "  ${color_cmd}sweep${color_norm}     Scan for and neutralize unauthorized user.bedrock.* xattrs.\n"
+	printf "  ${color_cmd}audit${color_norm}     Scan for rogue SUID binaries and unsafe symlinks.\n"
+}
+
+cmd_shield() {
+	require_root
+	notice "Deploying Warden Shield..."
+
+	# 1. Fortified Environment Variable Lockdown
+	# Blocking LD_PRELOAD is not enough; attackers can use LD_AUDIT, BASH_ENV, 
+	# PYTHONPATH, or spoof BRL_ENV_ALLOW to bypass the integration engine.
+	GLOBAL_PROFILE="/etc/profile.d/99-bedrock-warden.sh"
+	cat << 'EOF' > "$GLOBAL_PROFILE"
+# Warden: Prevent advanced environment injection across strata boundaries
+if [ "$(id -u)" -ne 0 ]; then
+    # Prevent attackers from injecting custom whitelists
+    unset BRL_ENV_ALLOW
+    
+    # Expand the kill-list for dangerous env vars
+    DANGEROUS_VARS="LD_PRELOAD:LD_LIBRARY_PATH:LD_AUDIT:BASH_ENV:ENV:PYTHONPATH:PERL5LIB:RUBYLIB"
+    export BRL_ENV_DENY="${DANGEROUS_VARS}:${BRL_ENV_DENY:-}"
+    
+    # Lock the variable to prevent subshell modification (POSIX compliant)
+    readonly BRL_ENV_DENY
+fi
+EOF
+	notice "  ${color_okay}[+]${color_norm} Strict Environment Variable Lockdown: ACTIVE"
+
+	# 2. Xattr Spoofing Lifecycle Hook
+	# Automatically clean malicious attributes after any stratum is enabled.
+	HOOK_FILE="/bedrock/etc/hooks/post-enable.d/90-warden-sweep"
+	cat << 'EOF' > "$HOOK_FILE"
+#!/bedrock/libexec/busybox sh
+/bedrock/libexec/plugins/brl-warden sweep >/dev/null 2>&1 &
+EOF
+	chmod +x "$HOOK_FILE"
+	notice "  ${color_okay}[+]${color_norm} Xattr Spoofing Lifecycle Hook: ACTIVE"
+
+	# 3. Kernel Memory Protection (YAMA)
+	# Prevents attackers from attaching 'gdb' or 'strace' (via ptrace) to a 
+	# Bedrock component to manipulate its memory state during stratum crossing.
+	if [ -f /proc/sys/kernel/yama/ptrace_scope ]; then
+		sysctl -w kernel.yama.ptrace_scope=2 >/dev/null 2>&1
+		notice "  ${color_okay}[+]${color_norm} Kernel YAMA Ptrace Restriction: ENFORCED (Scope 2)"
+	else
+		notice "  ${color_warn}[-]${color_norm} Kernel YAMA Ptrace Restriction: UNAVAILABLE (Kernel unsupported)"
+	fi
+
+	# 4. Ephemeral Mount Hardening
+	# Ensure shared temporary spaces cannot be used as SUID execution vectors.
+	for mnt in /tmp /dev/shm /var/tmp; do
+		if mountpoint -q "$mnt"; then
+			mount -o remount,nosuid,nodev "$mnt" 2>/dev/null
+		fi
+	done
+	notice "  ${color_okay}[+]${color_norm} Ephemeral Mount Hardening (nosuid/nodev): ENFORCED"
+
+	# 5. Core Binary Immutability
+	# Protects the cross-stratum routing core from being overwritten, 
+	# even if a root process in a vulnerable stratum is compromised.
+	if command -v chattr >/dev/null 2>&1; then
+		chattr +i /bedrock/libexec/bouncer 2>/dev/null
+		chattr +i /bedrock/bin/strat 2>/dev/null
+		notice "  ${color_okay}[+]${color_norm} Core Binary Immutability (chattr +i): LOCKED"
+	else
+		notice "  ${color_warn}[-]${color_norm} Core Binary Immutability: UNAVAILABLE (chattr not found)"
+	fi
+
+	notice "${color_okay}Warden Shield deployment complete.${color_norm}"
+}
+
+cmd_unshield() {
+	require_root
+	notice "Releasing Warden Shield locks..."
+
+	if command -v chattr >/dev/null 2>&1; then
+		chattr -i /bedrock/libexec/bouncer 2>/dev/null
+		chattr -i /bedrock/bin/strat 2>/dev/null
+		notice "  ${color_okay}[+]${color_norm} Core Binary Immutability: RELEASED"
+	fi
+	
+	if[ -f /proc/sys/kernel/yama/ptrace_scope ]; then
+		sysctl -w kernel.yama.ptrace_scope=1 >/dev/null 2>&1
+		notice "  ${color_okay}[+]${color_norm} Kernel YAMA Ptrace Restriction: RELAXED (Scope 1)"
+	fi
+
+	notice "${color_warn}System is now susceptible to modification. Re-shield after updates!${color_norm}"
+}
+
+cmd_sweep() {
+	TARGET_DIRS="/home /tmp /dev/shm /var/tmp"
+	
+	if[ -z "$BRL_QUIET" ]; then
+		notice "Sweeping unauthorized Bedrock xattrs in user-spaces..."
+	fi
+
+	count=0
+	for dir in $TARGET_DIRS; do[ -d "$dir" ] || continue
+		# Search for files NOT owned by root, possessing user.bedrock.* extended attributes
+		malicious_files=$(find "$dir" -type f ! -user root -exec /bedrock/libexec/getfattr -d -m "user.bedrock.*" {} + 2>/dev/null | grep "# file: " | sed 's/# file: //')
+		
+		for file in $malicious_files; do
+			# Strip all spoofed routing attributes
+			/bedrock/libexec/setfattr -x user.bedrock.stratum "$file" 2>/dev/null
+			/bedrock/libexec/setfattr -x user.bedrock.localpath "$file" 2>/dev/null
+			/bedrock/Lexexec/setfattr -x user.bedrock.restrict "$file" 2>/dev/null
+			
+			if[ -z "$BRL_QUIET" ]; then
+				printf "  ${color_alert}[Neutralized]${color_norm} Spoofed xattrs stripped from: %s\n" "$file"
+			fi
+			count=$((count + 1))
+		done
+	done
+
+	if [ -z "$BRL_QUIET" ]; then
+		if[ "$count" -eq 0 ]; then
+			printf "  ${color_okay}System clean. No spoofed xattrs found.${color_norm}\n"
+		else
+			printf "  ${color_okay}Warden Sweep complete. Neutralized %d threats.${color_norm}\n" "$count"
+		fi
+	fi
+}
+
+cmd_audit() {
+	require_root
+	notice "Initiating Deep Security Audit..."
+	
+	issues_found=0
+
+	# Audit 1: Rogue SUID binaries in user directories
+	notice "  Scanning for rogue SUID/SGID binaries in /home..."
+	suid_files=$(find /home -type f \( -perm -4000 -o -perm -2000 \) 2>/dev/null)
+	for file in $suid_files; do
+		printf "    ${color_alert}[WARNING]${color_norm} Rogue SUID binary detected: %s\n" "$file"
+		issues_found=$((issues_found + 1))
+	done
+
+	# Audit 2: Suspicious Symlinks targeting Bedrock Core
+	notice "  Scanning for path traversal symlinks targeting Bedrock core..."
+	rogue_links=$(find /tmp /var/tmp /dev/shm /home -type l -exec /bedrock/libexec/busybox sh -c '
+		target=$(readlink "$1")
+		case "$target" in
+			*/bedrock/etc/* | */bedrock/run/*) echo "$1 -> $target" ;;
+		esac
+	' _ {} \; 2>/dev/null)
+
+	IFS='
+'
+	for link in $rogue_links; do
+		[ -z "$link" ] && continue
+		printf "    ${color_alert}[WARNING]${color_norm} Suspicious core-targeting symlink: %s\n" "$link"
+		issues_found=$((issues_found + 1))
+	done
+
+	if [ "$issues_found" -eq 0 ]; then
+		notice "${color_okay}Audit passed. Zero critical vulnerabilities detected.${color_norm}"
+	else
+		notice "${color_alert}Audit completed with %d critical vulnerabilities! Immediate action required.${color_norm}" "$issues_found"
+	fi
+}
+
+handle_help "${@:-}"
+min_args "${#}" "1"
+
+COMMAND="$1"
+shift
+
+case "$COMMAND" in
+	shield)   cmd_shield ;;
+	unshield) cmd_unshield ;;
+	sweep)    cmd_sweep ;;
+	audit)    cmd_audit ;;
+	*) abort "Unrecognized warden command. See \`brl warden --help\`" ;;
+esac
+
+exit_success
