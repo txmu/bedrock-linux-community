@@ -1,0 +1,215 @@
+#!/bedrock/libexec/busybox sh
+#
+# brl forge (offcially another brl plugin): BRL Forge
+#
+#      This program is free software; you can redistribute it and/or
+#      modify it under the terms of the GNU General Public License
+#      version 2 as published by the Free Software Foundation.
+#
+# Geek Edition - The Symlink-based, Direct-URL Plugin Manager for Bedrock Linux.
+# A robust alternative to Sunlit Store, focusing on isolation and integrity.
+
+. /bedrock/share/common-code
+
+# BRL Forge uses an isolated directory for physical files
+FORGE_DIR="/bedrock/var/forge/plugins"
+# The system exposure point (native Bedrock plugin directory)
+EXPOSE_DIR="/bedrock/libexec/plugins"
+
+print_help() {
+	printf "Usage: ${color_cmd}brl forge${color_norm} ${color_sub}<command> [args]${color_norm}\n\n"
+	printf "BRL Forge - The Isolated, Direct-URL Plugin Manager.\n\n"
+	printf "Commands:\n"
+	printf "  ${color_cmd}fetch <url> [name] [sha256]${color_norm}  Fetch and link a plugin directly from a URL\n"
+	printf "  ${color_cmd}remove <plugin>${color_norm}              Completely delete a plugin\n"
+	printf "  ${color_cmd}link <plugin>${color_norm}                Expose a plugin to the brl command space\n"
+	printf "  ${color_cmd}unlink <plugin>${color_norm}              Unexpose a plugin without deleting it\n"
+	printf "  ${color_cmd}list${color_norm}                         List all Forge-managed plugins and their status\n"
+	printf "\nExamples:\n"
+	printf "  brl forge fetch https://gist.com/.../raw/myplugin myplugin\n"
+	printf "  brl forge unlink myplugin  # Temporarily disable\n"
+}
+
+init_env() {
+	require_root
+	mkdir -p "$FORGE_DIR"
+	mkdir -p "$EXPOSE_DIR"
+}
+
+# Command: link
+# Creates a symlink from EXPOSE_DIR to FORGE_DIR
+cmd_link() {
+	plugin="${1:-}"[ -z "$plugin" ] && abort "Please specify a plugin name to link."
+
+	target_file="${FORGE_DIR}/${plugin}"
+	link_file="${EXPOSE_DIR}/brl-${plugin}"
+
+	if[ ! -f "$target_file" ]; then
+		abort "Plugin '${plugin}' does not exist in Forge ($target_file)."
+	fi
+
+	# Check for conflicts
+	if [ -e "$link_file" ] || [ -h "$link_file" ]; then
+		# Check if it's already linked to forge
+		current_link=$(readlink "$link_file" 2>/dev/null || true)
+		if [ "$current_link" = "$target_file" ]; then
+			notice "Plugin '${plugin}' is already linked."
+			return 0
+		else
+			abort "Conflict: '${link_file}' already exists and is not managed by Forge!"
+		fi
+	fi
+
+	ln -s "$target_file" "$link_file"
+	notice "${color_okay}Linked: ${plugin} -> brl ${plugin}${color_norm}"
+}
+
+# Command: unlink
+# Removes the symlink from EXPOSE_DIR, but keeps the physical file
+cmd_unlink() {
+	plugin="${1:-}"
+	[ -z "$plugin" ] && abort "Please specify a plugin name to unlink."
+
+	link_file="${EXPOSE_DIR}/brl-${plugin}"
+
+	if [ -h "$link_file" ]; then
+		current_link=$(readlink "$link_file" 2>/dev/null || true)
+		if [ "$current_link" = "${FORGE_DIR}/${plugin}" ]; then
+			rm -f "$link_file"
+			notice "${color_okay}Unlinked: ${plugin} (File remains in Forge)${color_norm}"
+		else
+			abort "Cannot unlink: '${link_file}' is not managed by Forge."
+		fi
+	else
+		if [ -e "$link_file" ]; then
+			abort "Cannot unlink: '${link_file}' is a physical file, not a Forge symlink."
+		else
+			notice "Plugin '${plugin}' is already unlinked or does not exist."
+		fi
+	fi
+}
+
+# Command: fetch
+# Downloads a plugin, verifies checksum (if provided), and links it
+cmd_fetch() {
+	url="${1:-}"
+	plugin="${2:-}"
+	expected_hash="${3:-}"
+
+	[ -z "$url" ] && abort "Please specify a URL to fetch the plugin from."
+	
+	# If name is not provided, try to extract it from the URL
+	if [ -z "$plugin" ]; then
+		plugin="$(basename "$url")"[ -z "$plugin" ] && abort "Could not infer plugin name from URL. Please specify it manually."
+	fi
+
+	target_file="${FORGE_DIR}/${plugin}"
+	tmp_file="/bedrock/run/forge-fetch-${plugin}.tmp"
+
+	notice "Fetching ${color_link}${url}${color_norm}..."
+	if ! download -q "$url" "$tmp_file"; then
+		rm -f "$tmp_file"
+		abort "Failed to download plugin from ${url}."
+	fi
+
+	# Integrity Check
+	if [ -n "$expected_hash" ]; then
+		notice "Verifying SHA256 checksum..."
+		actual_hash=$(sha256sum "$tmp_file" | awk '{print $1}')
+		if [ "$actual_hash" != "$expected_hash" ]; then
+			rm -f "$tmp_file"
+			abort "Checksum mismatch!\nExpected: $expected_hash\nActual:   $actual_hash"
+		fi
+		notice "${color_okay}Checksum verified.${color_norm}"
+	else
+		printf "${color_warn}Warning: No checksum provided. Proceeding without integrity verification.${color_norm}\n"
+	fi
+
+	mv "$tmp_file" "$target_file"
+	chmod a+rx "$target_file"
+
+	notice "Plugin forged successfully."
+	cmd_link "$plugin"
+}
+
+# Command: remove
+# Unlinks and deletes the plugin physically
+cmd_remove() {
+	plugin="${1:-}"
+	[ -z "$plugin" ] && abort "Please specify a plugin name to remove."
+
+	target_file="${FORGE_DIR}/${plugin}"
+
+	cmd_unlink "$plugin"
+
+	if[ -f "$target_file" ]; then
+		rm -f "$target_file"
+		notice "${color_okay}Plugin '${plugin}' completely removed from Forge.${color_norm}"
+	else
+		notice "Plugin '${plugin}' not found in Forge directory."
+	fi
+}
+
+# Command: list
+# Lists Forge plugins and checks their symlink status
+cmd_list() {
+	notice "Forge Managed Plugins:"
+	count=0
+	
+	if[ -d "$FORGE_DIR" ]; then
+		for p in "${FORGE_DIR}"/*; do
+			[ -f "$p" ] || continue
+			name="$(basename "$p")"
+			link_file="${EXPOSE_DIR}/brl-${name}"
+			
+			status="${color_alert}[Unlinked]${color_norm}"
+			if [ -h "$link_file" ]; then
+				if[ "$(readlink "$link_file" 2>/dev/null)" = "$p" ]; then
+					status="${color_okay}[Active]${color_norm}  "
+				else
+					status="${color_warn}[Conflict]${color_norm}"
+				fi
+			fi
+
+			printf "  %s %s\n" "$status" "$name"
+			count=$((count + 1))
+		done
+	fi
+
+	if [ "$count" -eq 0 ]; then
+		printf "  (No plugins found in Forge)\n"
+	fi
+}
+
+# --- Main Execution ---
+
+handle_help "${@:-}"
+min_args "${#}" "1"
+
+COMMAND="${1}"
+shift
+
+init_env
+
+case "${COMMAND}" in
+	"fetch")
+		cmd_fetch "${1:-}" "${2:-}" "${3:-}"
+		;;
+	"link")
+		cmd_link "${1:-}"
+		;;
+	"unlink")
+		cmd_unlink "${1:-}"
+		;;
+	"remove")
+		cmd_remove "${1:-}"
+		;;
+	"list")
+		cmd_list
+		;;
+	*)
+		abort "Unrecognized command. See \`brl forge --help\`"
+		;;
+esac
+
+exit_success

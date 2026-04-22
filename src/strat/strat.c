@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 #include <sys/capability.h>
 #include <sys/param.h>
 #include <sys/stat.h>
@@ -438,61 +439,172 @@ void execv_skip(char *file, char *argv[], char *skip)
 	return;
 }
 
-/* 
- * Integration Engine: 
- * Ensures components like IME (Fcitx/IBus), Steam Overlay, and 
- * Translation tools work across strata boundaries while 
- * preventing random library version crashes.
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <limits.h>
+
+/*
+ * Helper: Checks if a given path contains directory traversal components (..)
+ * Prevents bypassing the isolation using paths like /bedrock/strata/target/../ubuntu/
  */
-void filter_env_path_integrated(const char *env_var, const char *target_stratum)
+static int has_path_traversal(const char *path)
 {
-	char *val = getenv(env_var);
-	if (!val || strlen(val) == 0)
-		return;
-
-	char target_prefix[PATH_MAX];
-	snprintf(target_prefix, sizeof(target_prefix), "/bedrock/strata/%s", target_stratum);
-
-	char *new_val = malloc(strlen(val) + 2);
-	if (!new_val)
-		return;
-	char *write_ptr = new_val;
-	*write_ptr = '\0';
-
-	char *val_copy = strdup(val);
-	char *token = strtok(val_copy, ":");
-
-	while (token) {
-		int allow = 0;
-
-		if (strncmp(token, "/bedrock/cross/", 15) == 0)
-			allow = 1;
-		else if (strncmp(token, "/bedrock/strata/", 16) == 0)
-			allow = 1;
-		else if (token[0] != '/')
-			allow = 1;
-		else if (strncmp(token, target_prefix, strlen(target_prefix)) == 0)
-			allow = 1;
-		else {
-			/* Keep others by default to prioritize Integration (Bedrock Philosophy) 
-			 * Safety is handled by --protected or --restrict modes. */
-			allow = 1;
-		}
-
-		if (allow) {
-			if (write_ptr != new_val) {
-				*write_ptr = ':';
-				write_ptr++;
-			}
-			strcpy(write_ptr, token);
-			write_ptr += strlen(token);
-		}
-		token = strtok(NULL, ":");
-	}
-	setenv(env_var, new_val, 1);
-	free(val_copy);
-	free(new_val);
+    if (!path) return 0;
+    
+    if (strstr(path, "/../")) return 1;
+    
+    size_t len = strlen(path);
+    if (len >= 3 && strcmp(path + len - 3, "/..") == 0) return 1;
+    if (strcmp(path, "..") == 0) return 1;
+    
+    return 0;
 }
+
+/*
+ * Helper: Checks if a path matches any prefix in a colon-separated list.
+ * Used for both whitelisting (BRL_ENV_ALLOW) and blacklisting (BRL_ENV_DENY).
+ */
+static int path_matches_list(const char *list_val, const char *path)
+{
+    if (!list_val || !path || strlen(list_val) == 0) return 0;
+
+    char *list_copy = strdup(list_val);
+    if (!list_copy) return 0;
+
+    char *saveptr;
+    char *token = strtok_r(list_copy, ":", &saveptr);
+    int found = 0;
+
+    while (token) {
+        /* Allow matching by exact path or directory prefix */
+        if (strncmp(path, token, strlen(token)) == 0) {
+            found = 1;
+            break;
+        }
+        token = strtok_r(NULL, ":", &saveptr);
+    }
+
+    free(list_copy);
+    return found;
+}
+
+/* 
+ * Integration Engine (Geek Edition - Ultimate Hardened Version): 
+ * Dynamically filters cross-stratum environment variables to prevent library leaks 
+ * and segmentation faults across heterogeneous environments.
+ */
+void filter_env_path_integrated(const char *target_stratum)
+{
+    /* Dynamic telemetry for geeks and debugging */
+    int trace_enabled = getenv("BRL_TRACE") ? 1 : 0;
+    #define TRACE_LOG(...) do { if(trace_enabled) fprintf(stderr, "[brl-strat-trace] " __VA_ARGS__); } while(0)
+
+    /* 1. Fetch the list of variables to filter (Default: LD_LIBRARY_PATH & LD_PRELOAD) */
+    const char *env_list_val = getenv("BRL_FILTER_ENVS");
+    char *env_list = strdup(env_list_val && strlen(env_list_val) > 0 ? 
+                            env_list_val : "LD_LIBRARY_PATH:LD_PRELOAD");
+    if (!env_list) return;
+
+    /* 2. Fetch User-defined Overrides (Whitelist & Blacklist) */
+    const char *whitelist_val = getenv("BRL_ENV_ALLOW");
+    const char *blacklist_val = getenv("BRL_ENV_DENY");
+
+    /* Absolute prefix for the target stratum */
+    char target_prefix[PATH_MAX];
+    snprintf(target_prefix, sizeof(target_prefix), "/bedrock/strata/%s", target_stratum);
+
+    char *saveptr_env;
+    char *env_name = strtok_r(env_list, ":", &saveptr_env);
+
+    /* Process each specified environment variable sequentially */
+    while (env_name) {
+        char *val = getenv(env_name);
+        if (val && strlen(val) > 0) {
+            TRACE_LOG("Processing Environment Variable: %s\n", env_name);
+
+            /* Allocate buffer for the sanitized paths */
+            char *new_val = malloc(strlen(val) + 2);
+            if (new_val) {
+                char *write_ptr = new_val;
+                *write_ptr = '\0';
+
+                char *val_copy = strdup(val);
+                if (!val_copy) {
+                    free(new_val);
+                    env_name = strtok_r(NULL, ":", &saveptr_env);
+                    continue;
+                }
+
+                char *saveptr_path;
+                char *token = strtok_r(val_copy, ":", &saveptr_path);
+
+                /* Evaluate each path separated by colon */
+                while (token) {
+                    int allow = 1;
+                    const char *reason = "Default allowed (Standard Path)";
+
+                    /* Rule 1: Security - Block Path Traversal Attacks */
+                    if (has_path_traversal(token)) {
+                        allow = 0;
+                        reason = "Path traversal blocked (Contains '..')";
+                    }
+                    /* Rule 2: Geek Blacklist - Explicitly Deny */
+                    else if (path_matches_list(blacklist_val, token)) {
+                        allow = 0;
+                        reason = "Explicitly blocked by BRL_ENV_DENY";
+                    }
+                    /* Rule 3: Geek Whitelist - Explicitly Allow */
+                    else if (path_matches_list(whitelist_val, token)) {
+                        allow = 1;
+                        reason = "Explicitly allowed by BRL_ENV_ALLOW";
+                    }
+                    /* Rule 4: Core Isolation - Prevent Heterogeneous Stratum Leaks */
+                    else if (strncmp(token, "/bedrock/strata/", 16) == 0) {
+                        /* If it points to a stratum but NOT the target stratum -> Block */
+                        if (strncmp(token, target_prefix, strlen(target_prefix)) != 0) {
+                            allow = 0;
+                            reason = "Cross-stratum isolation blocked leakage";
+                        } else {
+                            reason = "Target stratum native path";
+                        }
+                    }
+
+                    TRACE_LOG("  [%s] %s -> %s\n", allow ? "KEEP" : "DROP", token, reason);
+
+                    /* Append to the new valid string if allowed */
+                    if (allow) {
+                        if (write_ptr != new_val) {
+                            *write_ptr = ':';
+                            write_ptr++;
+                        }
+                        strcpy(write_ptr, token);
+                        write_ptr += strlen(token);
+                    }
+                    
+                    token = strtok_r(NULL, ":", &saveptr_path);
+                }
+
+                /* Apply the new sanitized environment variable */
+                if (strlen(new_val) > 0) {
+                    setenv(env_name, new_val, 1);
+                    TRACE_LOG("Updated %s=%s\n", env_name, new_val);
+                } else {
+                    /* Cleanly unset to prevent dynamic linker warnings from empty strings */
+                    unsetenv(env_name);
+                    TRACE_LOG("Unset %s (Empty after strict filtering)\n", env_name);
+                }
+
+                free(val_copy);
+                free(new_val);
+            }
+        }
+        env_name = strtok_r(NULL, ":", &saveptr_env);
+    }
+    free(env_list);
+    #undef TRACE_LOG
+}
+
 
 int switch_stratum(const char *alias)
 {
@@ -641,9 +753,7 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "strat: unable to set restricted environment\n");
 		return 1;
 	} else {
-		filter_env_path_integrated("LD_LIBRARY_PATH", param_stratum);
-		filter_env_path_integrated("LD_PRELOAD", param_stratum);
-		/* filter_env_path_integrated("QT_PLUGIN_PATH", param_stratum);  (or GTK_PATH)  disabled for convinience (Qt5.15) */
+	    filter_env_path_integrated(param_stratum);
 	}
 
 	if (switch_stratum(param_stratum) < 0) {

@@ -1,5 +1,5 @@
 /*
- * kmon.c - Bedrock Linux Kernel Monitor
+ * kmon.c - Bedrock Linux Community Kernel Monitor
  */
 #define _GNU_SOURCE
 #include <stdio.h>

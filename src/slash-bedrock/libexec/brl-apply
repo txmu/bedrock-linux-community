@@ -174,6 +174,42 @@ $(
 )
 
 unset -f br_dedup_envvar
+
+#[Geek Edition] Secure, eval-free parser for ~/.bedrock_profile
+# This strictly limits content and scope to prevent Arbitrary Code Execution.
+if [ -n "\${HOME:-}" ] &&[ -f "\${HOME}/.bedrock_profile" ]; then
+	while IFS='=' read -r key val || [ -n "\$key" ]; do
+		# Ignore empty lines and comments (#)
+		case "\$key" in ""|\\#*) continue ;; esac
+		
+		# Strip leading/trailing whitespaces
+		key="\$(echo "\$key" | xargs)"
+		val="\$(echo "\$val" | xargs)"
+		
+		# Strip outer quotes safely (no eval)
+		val="\${val#\\\"}"; val="\${val%\\\"}"
+		val="\${val#\\'}";  val="\${val%\\'}"
+		
+		# Provide minimal variable substitution for self-reference (e.g., PATH=/my/bin:\$PATH)
+		# We use sed to substitute strictly defined variables instead of unsafe shell expansion.
+		case "\$key" in
+			PATH)          val="\$(echo "\$val" | sed "s|\\\\\$PATH|\$PATH|g")" ;;
+			MANPATH)       val="\$(echo "\$val" | sed "s|\\\\\$MANPATH|\$MANPATH|g")" ;;
+			XDG_DATA_DIRS) val="\$(echo "\$val" | sed "s|\\\\\$XDG_DATA_DIRS|\$XDG_DATA_DIRS|g")" ;;
+		esac
+
+		# Content & Scope Limitation: ONLY export strictly whitelisted variables.
+		# Any malicious entry like 'LD_PRELOAD=/hacked.so' or 'alias ls="rm -rf"' is ignored.
+		case "\$key" in
+			PATH|MANPATH|INFOPATH|XDG_DATA_DIRS|TERMINFO_DIRS)
+				export "\$key"="\$val"
+				;;
+			BRL_TRACE|BRL_ENV_ALLOW|BRL_ENV_DENY)
+				export "\$key"="\$val"
+				;;
+		esac
+	done < "\${HOME}/.bedrock_profile"
+fi
 EOF
 
 # Setup /etc/zsh/zprofile, /etc/zprofile

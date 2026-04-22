@@ -230,8 +230,25 @@ fi
 # /bedrock/share/pmm/operations contains awk to populate operations[], a map
 # from the operation name to pmm implementation details.
 #
+
+# [Geek Edition] Safely determine the invoking user's config directory.
+# If invoked via sudo (e.g., sudo pmm install), fallback to the real user's HOME.
+TARGET_USER_HOME=""
+if[ -n "${SUDO_USER:-}" ]; then
+	TARGET_USER_HOME="$(getent passwd "${SUDO_USER}" | cut -d: -f6)"
+else
+	TARGET_USER_HOME="${HOME:-}"
+fi
+
+USER_PMM_DIR=""
+if [ -n "${TARGET_USER_HOME}" ] &&[ -d "${TARGET_USER_HOME}/.config/bedrock/pmm" ]; then
+	# We append /* to cat the files later
+	USER_PMM_DIR="${TARGET_USER_HOME}/.config/bedrock/pmm/*"
+fi
+
+# Append $USER_PMM_DIR to the cat command to load user-level plugins
 initialize_awk_variables="${initialize_awk_variables}
-$(cat /bedrock/share/pmm/package_managers/* /bedrock/share/pmm/help /bedrock/share/pmm/flags /bedrock/share/pmm/operations /bedrock/share/pmm/plugins/* 2>/dev/null)"
+$(cat /bedrock/share/pmm/package_managers/* /bedrock/share/pmm/help /bedrock/share/pmm/flags /bedrock/share/pmm/operations /bedrock/share/pmm/plugins/* ${USER_PMM_DIR} 2>/dev/null)"
 
 #
 # Execute main awk body of pmm

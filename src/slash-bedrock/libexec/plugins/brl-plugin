@@ -1,0 +1,232 @@
+#!/bedrock/libexec/busybox sh
+#
+# brl plugin (not the only): Sunlit Store
+#
+#      This program is free software; you can redistribute it and/or
+#      modify it under the terms of the GNU General Public License
+#      version 2 as published by the Free Software Foundation.
+#
+# Geek Edition - Decentralized Plugin Manager for Bedrock Linux.
+# Allows installing, updating, and managing brl plugins from remote taps.
+
+. /bedrock/share/common-code
+
+PLUGIN_DIR="/bedrock/libexec/plugins"
+CACHE_DIR="/bedrock/var/cache/plugins"
+CONFIG_FILE="/bedrock/etc/plugins.conf"
+# Default core registry for community plugins
+DEFAULT_TAP="https://raw.githubusercontent.com/bedrocklinux-community/brl-plugins/main"
+
+print_help() {
+	printf "Usage: ${color_cmd}brl plugin${color_norm} ${color_sub}<command> [args]${color_norm}\n\n"
+	printf "Geek Edition Decentralized Plugin Manager for Bedrock Linux.\n\n"
+	printf "Commands:\n"
+	printf "  ${color_cmd}install <plugin>${color_norm}   Install a plugin from configured taps\n"
+	printf "  ${color_cmd}remove <plugin>${color_norm}    Remove an installed plugin\n"
+	printf "  ${color_cmd}list${color_norm}               List currently installed plugins\n"
+	printf "  ${color_cmd}search <keyword>${color_norm}   Search for plugins in the cache\n"
+	printf "  ${color_cmd}update${color_norm}             Sync the local plugin index from taps\n"
+	printf "  ${color_cmd}tap add <url>${color_norm}      Add a third-party tap repository\n"
+	printf "  ${color_cmd}tap remove <url>${color_norm}   Remove a configured tap repository\n"
+	printf "  ${color_cmd}tap list${color_norm}           List configured taps\n"
+}
+
+# Ensure essential directories and config exist
+init_env() {
+	if [ ! -f "$CONFIG_FILE" ]; then
+		require_root
+		mkdir -p "$(dirname "$CONFIG_FILE")"
+		echo "$DEFAULT_TAP" > "$CONFIG_FILE"
+	fi
+	mkdir -p "$PLUGIN_DIR"
+	mkdir -p "$CACHE_DIR"
+}
+
+cmd_install() {
+	require_root
+	plugin="${1:-}"
+	[ -z "$plugin" ] && abort "Please specify a plugin name to install."
+
+	# Protect against core command override
+	if [ -e "/bedrock/libexec/brl-${plugin}" ]; then
+		abort "Cannot install plugin '${plugin}': Conflicts with core brl command."
+	fi
+
+	notice "Searching for ${color_strat}${plugin}${color_norm} across taps..."
+	target_tmp="/bedrock/run/brl-plugin-${plugin}.tmp"
+
+	found=false
+	while read -r tap_url; do
+		# Skip empty lines or comments[ -z "$tap_url" ] || echo "$tap_url" | grep -q "^#" && continue
+
+		# Attempt to download the raw executable script from the tap
+		if download -q "${tap_url}/plugins/brl-${plugin}" "$target_tmp" 2>/dev/null; then
+			found=true
+			break
+		fi
+	done < "$CONFIG_FILE"
+
+	if ! $found; then
+		abort "Plugin '${plugin}' not found in any configured taps."
+	fi
+
+	notice "Plugin downloaded successfully."
+	
+	# ---------------------------------------------------------
+	# Geek Feature: Mandatory Code Review
+	# We force the user to inspect the script before granting it 
+	# execution rights, ensuring absolute transparency.
+	# ---------------------------------------------------------
+	printf "${color_warn}Security Check: Press ENTER to review the source code of the plugin...${color_norm}"
+	read -r _
+
+	editor="${EDITOR:-vi}"
+	if ! command -v "$editor" >/dev/null 2>&1; then
+		# Fallback to busybox vi provided by bedrock
+		editor="/bedrock/libexec/busybox vi"
+	fi
+
+	# Open the code in the editor
+	$editor "$target_tmp"
+
+	printf "\n${color_warn}Do you want to proceed with installing ${color_strat}${plugin}${color_warn}?[y/N] ${color_norm}"
+	read -r confirm
+	case "$confirm" in[yY]|[yY][eE][sS])
+			# Move to the plugin directory and make it executable
+			mv "$target_tmp" "${PLUGIN_DIR}/brl-${plugin}"
+			chmod a+rx "${PLUGIN_DIR}/brl-${plugin}"
+			notice "${color_okay}Successfully installed \`brl ${plugin}\`${color_norm}"
+			;;
+		*)
+			rm -f "$target_tmp"
+			abort "Installation aborted by user."
+			;;
+	esac
+}
+
+cmd_remove() {
+	require_root
+	plugin="${1:-}"[ -z "$plugin" ] && abort "Please specify a plugin name to remove."
+
+	target_file="${PLUGIN_DIR}/brl-${plugin}"
+	if [ -f "$target_file" ]; then
+		rm -f "$target_file"
+		notice "${color_okay}Successfully removed \`brl ${plugin}\`${color_norm}"
+	else
+		abort "Plugin '${plugin}' is not installed."
+	fi
+}
+
+cmd_list() {
+	notice "Installed plugins:"
+	count=0
+	for p in "${PLUGIN_DIR}"/brl-*; do
+		[ -f "$p" ] || continue
+		name="$(basename "$p" | sed 's/^brl-//')"
+		# Skip self[ "$name" = "plugin" ] && continue 
+		printf "  ${color_cmd}%s${color_norm}\n" "$name"
+		count=$((count + 1))
+	done
+	
+	if [ "$count" -eq 0 ]; then
+		printf "  (None)\n"
+	fi
+}
+
+cmd_update() {
+	require_root
+	notice "Syncing plugin indices from configured taps..."
+	
+	tap_count=1
+	while read -r tap_url; do
+		[ -z "$tap_url" ] || echo "$tap_url" | grep -q "^#" && continue
+		
+		# Each tap should ideally host an index.txt with "plugin_name - Description"
+		notice "Fetching index from ${color_link}${tap_url}${color_norm}"
+		download -q "${tap_url}/index.txt" "${CACHE_DIR}/tap_${tap_count}.txt" || true
+		tap_count=$((tap_count + 1))
+	done < "$CONFIG_FILE"
+	
+	notice "${color_okay}Plugin cache updated successfully.${color_norm}"
+}
+
+cmd_search() {
+	keyword="${1:-}"
+	[ -z "$keyword" ] && abort "Please specify a search keyword."
+	
+	notice "Searching for '${keyword}' in plugin cache..."
+	# Suppress errors if cache is empty
+	if ! grep -i --color=always "$keyword" "$CACHE_DIR"/tap_*.txt 2>/dev/null | sed 's/^.*\.txt://'; then
+		printf "  (No results found. Have you run \`brl plugin update\`?)\n"
+	fi
+}
+
+cmd_tap() {
+	subcmd="${1:-}"
+	url="${2:-}"
+
+	case "$subcmd" in
+		"add")
+			require_root[ -z "$url" ] && abort "Please specify a Tap URL."
+			if grep -qF "$url" "$CONFIG_FILE" 2>/dev/null; then
+				abort "Tap already exists."
+			fi
+			echo "$url" >> "$CONFIG_FILE"
+			notice "${color_okay}Added tap: ${url}${color_norm}"
+			;;
+		"remove")
+			require_root
+			[ -z "$url" ] && abort "Please specify a Tap URL to remove."
+			# Create a new file without the URL, then replace
+			grep -vF "$url" "$CONFIG_FILE" > "${CONFIG_FILE}.tmp"
+			mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+			notice "${color_okay}Removed tap: ${url}${color_norm}"
+			;;
+		"list")
+			notice "Configured Taps:"
+			cat "$CONFIG_FILE" | while read -r line; do[ -z "$line" ] || echo "$line" | grep -q "^#" && continue
+				printf "  ${color_link}%s${color_norm}\n" "$line"
+			done
+			;;
+		*)
+			abort "Unrecognized tap command. Use add, remove, or list."
+			;;
+	esac
+}
+
+
+# --- Main Execution ---
+
+handle_help "${@:-}"
+min_args "${#}" "1"
+
+COMMAND="${1}"
+shift
+
+init_env
+
+case "${COMMAND}" in
+	"install")
+		cmd_install "${1:-}"
+		;;
+	"remove")
+		cmd_remove "${1:-}"
+		;;
+	"list")
+		cmd_list
+		;;
+	"update")
+		cmd_update
+		;;
+	"search")
+		cmd_search "${1:-}"
+		;;
+	"tap")
+		cmd_tap "${1:-}" "${2:-}"
+		;;
+	*)
+		abort "Unrecognized command. See \`brl plugin --help\`"
+		;;
+esac
+
+exit_success
